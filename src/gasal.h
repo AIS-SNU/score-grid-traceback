@@ -7,7 +7,7 @@
 
 
 //#include "/usr/local/cuda-10.2/targets/x86_64-linux/include/cuda_runtime.h"
-#include "/usr/local/cuda-11.1/targets/x86_64-linux/include/cuda_runtime.h"
+#include "/usr/local/cuda-12/targets/x86_64-linux/include/cuda_runtime.h"
 //#include "/usr/local/cuda-11.2/targets/x86_64-linux/include/cuda_runtime.h"
 //#include "/usr/local/cuda-11.3/targets/x86_64-linux/include/cuda_runtime.h"
 //#include "/usr/local/cuda-11.4/targets/x86_64-linux/include/cuda_runtime.h"

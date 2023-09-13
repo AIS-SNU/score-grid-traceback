@@ -12,7 +12,6 @@ inline void gasal_kernel_launcher(int32_t N_BLOCKS, int32_t BLOCKDIM, algo_type 
 {
 	switch(algo)
 	{
-		
 		KERNEL_SWITCH(LOCAL,		start, semiglobal_skipping_head, semiglobal_skipping_tail, secondBest, maximum_sequence_length, global_inter_row);
 		KERNEL_SWITCH(SEMI_GLOBAL,  start, semiglobal_skipping_head, semiglobal_skipping_tail, secondBest, maximum_sequence_length, global_inter_row);		// MACRO that expands all 32 semi-global kernels
 		//KERNEL_SWITCH(GLOBAL,		start, semiglobal_skipping_head, semiglobal_skipping_tail, secondBest, maximum_sequence_length, global_inter_row);
@@ -25,9 +24,21 @@ inline void gasal_kernel_launcher(int32_t N_BLOCKS, int32_t BLOCKDIM, algo_type 
 
 }
 
+inline void gasal_kernel_launcher_local_tb(int32_t N_BLOCKS, int32_t BLOCKDIM, algo_type algo, comp_start start, gasal_gpu_storage_t *gpu_storage, int32_t actual_n_alns, int32_t k_band, data_source semiglobal_skipping_head, data_source semiglobal_skipping_tail, Bool secondBest, uint32_t maximum_sequence_length, short2* global_inter_row, uint32_t* global_direction, uint8_t *result_query, uint8_t *result_target)
+{
+	switch(algo)
+	{
+		KERNEL_SWITCH_LOCAL(LOCAL,		start, semiglobal_skipping_head, semiglobal_skipping_tail, secondBest, maximum_sequence_length, global_inter_row, global_direction);
+		default:
+		break;
+
+	}
+
+}
+
 
 //GASAL2 asynchronous (a.k.a non-blocking) alignment function
-void gasal_aln_async(gasal_gpu_storage_t *gpu_storage, const uint32_t actual_query_batch_bytes, const uint32_t actual_target_batch_bytes, const uint32_t actual_n_alns, Parameters *params, uint32_t maximum_sequence_length, short2* global_inter_row) {
+void gasal_aln_async(gasal_gpu_storage_t *gpu_storage, const uint32_t actual_query_batch_bytes, const uint32_t actual_target_batch_bytes, const uint32_t actual_n_alns, Parameters *params, uint32_t maximum_sequence_length, short2* global_inter_row, uint32_t* global_direction, uint8_t *result_query, uint8_t *result_target) {
 
 	cudaError_t err;
 	if (actual_n_alns <= 0) {
@@ -247,8 +258,11 @@ void gasal_aln_async(gasal_gpu_storage_t *gpu_storage, const uint32_t actual_que
 	}
 	
     //--------------------------------------launch alignment kernels--------------------------------------------------------------
-	
-	gasal_kernel_launcher(N_BLOCKS, BLOCKDIM, params->algo, params->start_pos, gpu_storage, actual_n_alns, params->k_band, params->semiglobal_skipping_head, params->semiglobal_skipping_tail, params->secondBest, maximum_sequence_length, global_inter_row);
+	if (params->algo == LOCAL && params->start_pos == WITH_TB) {
+		gasal_kernel_launcher_local_tb(N_BLOCKS, BLOCKDIM, params->algo, params->start_pos, gpu_storage, actual_n_alns, params->k_band, params->semiglobal_skipping_head, params->semiglobal_skipping_tail, params->secondBest, maximum_sequence_length, global_inter_row, global_direction, result_query, result_target);
+	} else {
+		gasal_kernel_launcher(N_BLOCKS, BLOCKDIM, params->algo, params->start_pos, gpu_storage, actual_n_alns, params->k_band, params->semiglobal_skipping_head, params->semiglobal_skipping_tail, params->secondBest, maximum_sequence_length, global_inter_row);
+	}
 	
 	
 

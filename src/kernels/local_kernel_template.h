@@ -60,8 +60,6 @@
 		p[m] = h[m-1]; \
 
 
-
-
 /* typename meaning : 
     - T is the algorithm type (LOCAL, MICROLOCAL)
     - S is WITH_ or WIHTOUT_START
@@ -69,7 +67,7 @@
     (sidenote: it's based on an enum instead of a bool in order to generalize its type from its Int value, with Int2Type meta-programming-template)
 */
 template <typename T, typename S, typename B>
-__global__ void gasal_local_kernel(uint32_t *packed_query_batch, uint32_t *packed_target_batch,  uint32_t *query_batch_lens, uint32_t *target_batch_lens, uint32_t *query_batch_offsets, uint32_t *target_batch_offsets, gasal_res_t *device_res, gasal_res_t *device_res_second, uint4 *packed_tb_matrices, int n_tasks, uint32_t max_query_len, short2 *global_inter_row)
+__global__ void gasal_local_kernel(uint32_t *packed_query_batch, uint32_t *packed_target_batch,  uint32_t *query_batch_lens, uint32_t *target_batch_lens, uint32_t *query_batch_offsets, uint32_t *target_batch_offsets, gasal_res_t *device_res, gasal_res_t *device_res_second, uint4 *packed_tb_matrices, int n_tasks, uint32_t max_query_len, short2 *global_inter_row, uint32_t *global_direction)
 {
     const uint32_t tid = (blockIdx.x * blockDim.x) + threadIdx.x;//thread ID
 	//if (tid >= n_tasks) return;
@@ -116,11 +114,13 @@ __global__ void gasal_local_kernel(uint32_t *packed_query_batch, uint32_t *packe
 	int warp_per_kernel = (gridDim.x * blockDim.x) / warp_len; // number of warps. assume number of threads % warp_len == 0
 	int job_per_warp = n_tasks % warp_per_kernel ? (n_tasks / warp_per_kernel + 1) : n_tasks / warp_per_kernel ;
 	//int warp_per_block = blockDim.x / warp_len; // number of warps in a block 
+	int tb_matrix_size = max_query_len*max_query_len/8;
 	
 	// shared memory for intermediate values
 	extern __shared__ short2 inter_row[];	//TODO: could use global mem instead
 	int32_t* shared_maxHH = (int32_t*)(inter_row+((blockDim.x/8)*512));
 	int job_per_query = max_query_len % warp_len ? (max_query_len / warp_len + 1) : max_query_len / warp_len;
+	extern __shared__ int32_t local_direction[];
 
 	// start and end idx of sequences for each warp
 	int job_start_idx = warp_num*job_per_warp;
@@ -134,9 +134,8 @@ __global__ void gasal_local_kernel(uint32_t *packed_query_batch, uint32_t *packe
 
 
 	for (i = job_start_idx; i < job_end_idx; i++) {
-
 		maxHH = 0; //initialize the maximum score to zero
-		maxXY_y = 0; 
+		maxXY_y = 0;
 
     	prev_maxHH = 0;
     	maxXY_x = 0;
@@ -204,6 +203,7 @@ __global__ void gasal_local_kernel(uint32_t *packed_query_batch, uint32_t *packe
 					register uint32_t rpac =packed_query_batch[packed_query_batch_idx + read_iter];
 					ridx = 0;
 					// 8*8 tile computation
+					
 
 					for (k = 28; k >= 0 && (ridx+read_iter*8) < read_len; k -= 4) {
 						uint32_t rbase = (rpac >> k) & 15;//get a base from query_batch sequence
@@ -211,11 +211,15 @@ __global__ void gasal_local_kernel(uint32_t *packed_query_batch, uint32_t *packe
 						HD = inter_row[warp_block_id*packed_warp_len + (read_iter%(2*shared_len))*packed_len + ridx];
 						//HD = global_inter_row[warp_num*max_query_len + (read_iter%(2*ref_iter_len))*packed_len + ridx];
 						h[0] = HD.x;
-						e = HD.y;
+						e = HD.y;						
+
 
 						#pragma unroll 8
 						for (l = 28, m = 1; m < 9; l -= 4, m++) {
-							CORE_LOCAL_COMPUTE();
+							// CORE_LOCAL_COMPUTE();
+							CORE_LOCAL_COMPUTE_TB(global_direction[tb_matrix_size*i + j*max_query_len*8 + max_query_len*warp_id + read_iter*8 + ridx]);
+							
+							
 							if (SAMETYPE(B, Int2Type<TRUE>))
 							{
 								bool override_second = (maxHH_second < h[m]) && (maxHH > h[m]);
@@ -285,7 +289,8 @@ __global__ void gasal_local_kernel(uint32_t *packed_query_batch, uint32_t *packe
 
 						#pragma unroll 8
 						for (l = 28, m = 1; m < 9; l -= 4, m++) {
-							CORE_LOCAL_COMPUTE();
+							// CORE_LOCAL_COMPUTE();
+							CORE_LOCAL_COMPUTE_TB(global_direction[tb_matrix_size*i + j*max_query_len*8 + max_query_len*warp_id + read_iter*8 + ridx]);
 							if (SAMETYPE(B, Int2Type<TRUE>))
 							{
 								bool override_second = (maxHH_second < h[m]) && (maxHH > h[m]);
@@ -322,7 +327,7 @@ __global__ void gasal_local_kernel(uint32_t *packed_query_batch, uint32_t *packe
 				if ((x% shared_len) == (shared_len-1)) {
 					for (ridx = 0; ridx < 8*(shared_len/warp_len); ridx++) {
 						global_inter_row[warp_num*max_query_len + (x-shared_len+1)*packed_len + ridx*warp_len + warp_id] = inter_row[warp_block_id*packed_warp_len + ((x-shared_len+1)%(2*shared_len))*packed_len + ridx*warp_len + warp_id];
-											
+
 					}
 					
 				}
@@ -352,7 +357,8 @@ __global__ void gasal_local_kernel(uint32_t *packed_query_batch, uint32_t *packe
 
 						#pragma unroll 8
 						for (l = 28, m = 1; m < 9; l -= 4, m++) {
-							CORE_LOCAL_COMPUTE();
+							// CORE_LOCAL_COMPUTE();
+							CORE_LOCAL_COMPUTE_TB(global_direction[tb_matrix_size*i + j*max_query_len*8 + max_query_len*warp_id + read_iter*8 + ridx]);
 							if (SAMETYPE(B, Int2Type<TRUE>))
 							{
 								bool override_second = (maxHH_second < h[m]) && (maxHH > h[m]);
@@ -390,7 +396,7 @@ __global__ void gasal_local_kernel(uint32_t *packed_query_batch, uint32_t *packe
 					for (ridx = 0; ridx < 8*(shared_len/warp_len); ridx++) {
 						if ((x-shared_len+1)*8 + ridx*warp_len + warp_id < read_len) {
 							global_inter_row[warp_num*max_query_len + (x-shared_len+1)*packed_len + ridx*warp_len + warp_id] = inter_row[warp_block_id*packed_warp_len + ((x-shared_len+1)%(2*shared_len))*packed_len + ridx*warp_len + warp_id];
-							
+
 						}						
 					}
 					
@@ -434,6 +440,7 @@ __global__ void gasal_local_kernel(uint32_t *packed_query_batch, uint32_t *packe
 			device_res->aln_score[i] = shared_maxHH[tx];//copy the max score to the output array in the GPU mem
 			device_res->query_batch_end[i] = shared_maxHH[blockDim.x+tx];//copy the end position on query_batch sequence to the output array in the GPU mem
 			device_res->target_batch_end[i] = shared_maxHH[blockDim.x*2+tx];//copy the end position on target_batch sequence to the output array in the GPU mem
+			// printf("tid: %d, aln_score: %d, query_end: %d, target_end: %d\n", i, device_res->aln_score[i], device_res->query_batch_end[i], device_res->target_batch_end[i]);
 			int i2 = i;
 			
 

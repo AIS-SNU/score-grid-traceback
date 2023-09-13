@@ -25,7 +25,7 @@ FILES_SHORT=short_query_batch.fasta short_target_batch.fasta
 .cpp.o:
 	g++ -std=c++11 -g -c -O3 -Wall -Werror -fopenmp -I ../include  -o test_prog.o test_prog.cpp -lcudart
 
-all: clean manual #test_prog.out
+all: clean manual test_prog.out
 
 
 manual: test_prog.o ../obj/args_parser.cppo ../obj/host_batch.cppo ../obj/ctors.cppo ../obj/interfaces.cppo ../obj/res.cppo ../obj/gasal_align.cuo 
