@@ -60,6 +60,7 @@
 		p[m] = h[m-1]; \
 
 
+
 /* typename meaning : 
     - T is the algorithm type (LOCAL, MICROLOCAL)
     - S is WITH_ or WIHTOUT_START
@@ -67,7 +68,7 @@
     (sidenote: it's based on an enum instead of a bool in order to generalize its type from its Int value, with Int2Type meta-programming-template)
 */
 template <typename T, typename S, typename B>
-__global__ void gasal_local_kernel(uint32_t *packed_query_batch, uint32_t *packed_target_batch,  uint32_t *query_batch_lens, uint32_t *target_batch_lens, uint32_t *query_batch_offsets, uint32_t *target_batch_offsets, gasal_res_t *device_res, gasal_res_t *device_res_second, uint4 *packed_tb_matrices, int n_tasks, uint32_t max_query_len, short2 *global_inter_row, uint32_t *global_direction)
+__global__ void gasal_local_kernel(uint32_t *packed_query_batch, uint32_t *packed_target_batch,  uint32_t *query_batch_lens, uint32_t *target_batch_lens, uint32_t *query_batch_offsets, uint32_t *target_batch_offsets, gasal_res_t *device_res, gasal_res_t *device_res_second, uint4 *packed_tb_matrices, int n_tasks, uint32_t max_query_len, short2 *global_inter_row, uint32_t *global_direction, short2 *dblock_row, short2 *dblock_col, uint32_t *dp_matrix_offsets)
 {
     const uint32_t tid = (blockIdx.x * blockDim.x) + threadIdx.x;//thread ID
 	//if (tid >= n_tasks) return;
@@ -113,14 +114,15 @@ __global__ void gasal_local_kernel(uint32_t *packed_query_batch, uint32_t *packe
 	int warp_num = tid / warp_len;
 	int warp_per_kernel = (gridDim.x * blockDim.x) / warp_len; // number of warps. assume number of threads % warp_len == 0
 	int job_per_warp = n_tasks % warp_per_kernel ? (n_tasks / warp_per_kernel + 1) : n_tasks / warp_per_kernel ;
-	//int warp_per_block = blockDim.x / warp_len; // number of warps in a block 
+	//int warp_per_block = blockDim.x / warp_len; // number of warps in a block
+	#ifndef DYNAMIC_TB
 	int tb_matrix_size = max_query_len*max_query_len/8;
+	#endif
 	
 	// shared memory for intermediate values
 	extern __shared__ short2 inter_row[];	//TODO: could use global mem instead
 	int32_t* shared_maxHH = (int32_t*)(inter_row+((blockDim.x/8)*512));
 	int job_per_query = max_query_len % warp_len ? (max_query_len / warp_len + 1) : max_query_len / warp_len;
-	extern __shared__ int32_t local_direction[];
 
 	// start and end idx of sequences for each warp
 	int job_start_idx = warp_num*job_per_warp;
@@ -157,6 +159,7 @@ __global__ void gasal_local_kernel(uint32_t *packed_query_batch, uint32_t *packe
 		}
 		
 		int iter_num = target_batch_regs % warp_len ? (target_batch_regs / warp_len + 1):target_batch_regs / warp_len;
+		int dp_mtx_len = MAX(query_batch_lens[i], target_batch_lens[i]);
 
 		//int check = 50;
 		int up;
@@ -181,7 +184,9 @@ __global__ void gasal_local_kernel(uint32_t *packed_query_batch, uint32_t *packe
 				gidx = (j*warp_len + warp_id) << 3;
 
 			}
-				
+			
+			// dynamic block
+			int dblock_col_num;
 
 				// increasing phase
 			int anti_len = 1;
@@ -216,8 +221,11 @@ __global__ void gasal_local_kernel(uint32_t *packed_query_batch, uint32_t *packe
 
 						#pragma unroll 8
 						for (l = 28, m = 1; m < 9; l -= 4, m++) {
-							// CORE_LOCAL_COMPUTE();
+							#ifdef DYNAMIC_TB
+							CORE_LOCAL_COMPUTE();
+							#else
 							CORE_LOCAL_COMPUTE_TB(global_direction[tb_matrix_size*i + j*max_query_len*8 + max_query_len*warp_id + read_iter*8 + ridx]);
+							#endif
 							
 							
 							if (SAMETYPE(B, Int2Type<TRUE>))
@@ -234,6 +242,13 @@ __global__ void gasal_local_kernel(uint32_t *packed_query_batch, uint32_t *packe
 						inter_row[warp_block_id*packed_warp_len + (read_iter%(2*shared_len))*packed_len + ridx] = HD;
 						//global_inter_row[warp_num*max_query_len + (read_iter%(2*ref_iter_len))*packed_len + ridx] = HD;
 						//---------------------------------------------
+						#ifdef DYNAMIC_TB
+						//--------------- save dblock row -------------
+						if ((8*warp_len*j+8*(warp_id+1))%DBLOCK_SIZE == 0) {
+							dblock_row[dp_matrix_offsets[i] + dp_mtx_len*((8*warp_len*j+8*(warp_id+1))/DBLOCK_SIZE) + read_iter*8 + ridx] = HD;
+						}
+						//---------------------------------------------
+						#endif
 
 
 						maxXY_x = (prev_maxHH < maxHH) ? ridx+read_iter*8 : maxXY_x;//end position on query_batch sequence corresponding to current maximum score
@@ -248,8 +263,21 @@ __global__ void gasal_local_kernel(uint32_t *packed_query_batch, uint32_t *packe
 						//-------------------------------------------------------
 
 					}
-
+					
 					read_iter++;
+
+					#ifdef DYNAMIC_TB
+					//-------------- save dblock col -------------------
+					if ((read_iter*8)%DBLOCK_SIZE == 0) {
+						for (ridx = 0; ridx < 8; ridx++) {
+							HD.x = h[ridx+1];
+							HD.y = f[ridx+1];
+							dblock_col_num = read_iter*8/DBLOCK_SIZE;
+							dblock_col[dp_matrix_offsets[i] + dp_mtx_len*dblock_col_num + j*warp_len*8 + warp_id*8 + ridx] = HD;
+						}
+					}
+					//--------------------------------------------------
+					#endif
 					
 				}
 				up++;
@@ -275,6 +303,7 @@ __global__ void gasal_local_kernel(uint32_t *packed_query_batch, uint32_t *packe
 					}
 				}
 				
+
 				
 				if (warp_id < ref_iter_len) {
 					ridx = 0;
@@ -289,8 +318,12 @@ __global__ void gasal_local_kernel(uint32_t *packed_query_batch, uint32_t *packe
 
 						#pragma unroll 8
 						for (l = 28, m = 1; m < 9; l -= 4, m++) {
-							// CORE_LOCAL_COMPUTE();
+							#ifdef DYNAMIC_TB
+							CORE_LOCAL_COMPUTE();
+							#else
 							CORE_LOCAL_COMPUTE_TB(global_direction[tb_matrix_size*i + j*max_query_len*8 + max_query_len*warp_id + read_iter*8 + ridx]);
+							#endif
+
 							if (SAMETYPE(B, Int2Type<TRUE>))
 							{
 								bool override_second = (maxHH_second < h[m]) && (maxHH > h[m]);
@@ -304,6 +337,13 @@ __global__ void gasal_local_kernel(uint32_t *packed_query_batch, uint32_t *packe
 						HD.y = e;
 						inter_row[warp_block_id*packed_warp_len + (read_iter%(2*shared_len))*packed_len + ridx] = HD;
 						//---------------------------------------------
+						#ifdef DYNAMIC_TB
+						//--------------- save dblock row -------------
+						if ((8*warp_len*j+8*(warp_id+1))%DBLOCK_SIZE == 0) {
+							dblock_row[dp_matrix_offsets[i] + dp_mtx_len*((8*warp_len*j+8*(warp_id+1))/DBLOCK_SIZE) + read_iter*8 + ridx] = HD;
+						}
+						//---------------------------------------------
+						#endif
 
 
 						maxXY_x = (prev_maxHH < maxHH) ? ridx+read_iter*8 : maxXY_x;//end position on query_batch sequence corresponding to current maximum score
@@ -318,10 +358,28 @@ __global__ void gasal_local_kernel(uint32_t *packed_query_batch, uint32_t *packe
 						//-------------------------------------------------------
 
 					}
+
 					
 				}
 				
 				read_iter++;
+
+				#ifdef DYNAMIC_TB
+				if (warp_id < ref_iter_len) {
+					//-------------- save dblock col -------------------
+					if ((read_iter*8)%DBLOCK_SIZE == 0) {
+						for (ridx = 0; ridx < 8; ridx++) {
+							HD.x = h[ridx+1];
+							HD.y = f[ridx+1];
+							dblock_col_num = read_iter*8/DBLOCK_SIZE;
+							dblock_col[dp_matrix_offsets[i] + dp_mtx_len*dblock_col_num + j*warp_len*8 + warp_id*8 + ridx] = HD;
+						}
+					}
+					//--------------------------------------------------
+					
+				}
+				#endif
+
 				up++;
 				
 				if ((x% shared_len) == (shared_len-1)) {
@@ -357,8 +415,12 @@ __global__ void gasal_local_kernel(uint32_t *packed_query_batch, uint32_t *packe
 
 						#pragma unroll 8
 						for (l = 28, m = 1; m < 9; l -= 4, m++) {
-							// CORE_LOCAL_COMPUTE();
+							#ifdef DYNAMIC_TB
+							CORE_LOCAL_COMPUTE();
+							#else
 							CORE_LOCAL_COMPUTE_TB(global_direction[tb_matrix_size*i + j*max_query_len*8 + max_query_len*warp_id + read_iter*8 + ridx]);
+							#endif
+
 							if (SAMETYPE(B, Int2Type<TRUE>))
 							{
 								bool override_second = (maxHH_second < h[m]) && (maxHH > h[m]);
@@ -372,6 +434,13 @@ __global__ void gasal_local_kernel(uint32_t *packed_query_batch, uint32_t *packe
 						HD.y = e;
 						inter_row[warp_block_id*packed_warp_len + (read_iter%(2*shared_len))*packed_len + ridx] = HD;
 						//---------------------------------------------
+						#ifdef DYNAMIC_TB
+						//--------------- save dblock row -------------
+						if ((8*warp_len*j+8*(warp_id+1))%DBLOCK_SIZE == 0) {
+							dblock_row[dp_matrix_offsets[i] + dp_mtx_len*((8*warp_len*j+8*(warp_id+1))/DBLOCK_SIZE) + read_iter*8 + ridx] = HD;
+						}
+						//---------------------------------------------
+						#endif
 
 
 						maxXY_x = (prev_maxHH < maxHH) ? ridx+read_iter*8 : maxXY_x;//end position on query_batch sequence corresponding to current maximum score
@@ -389,7 +458,19 @@ __global__ void gasal_local_kernel(uint32_t *packed_query_batch, uint32_t *packe
 					
 
 					read_iter++;
-					
+
+					#ifdef DYNAMIC_TB
+					//-------------- save dblock col -------------------
+					if ((read_iter*8)%DBLOCK_SIZE == 0) {
+						for (ridx = 0; ridx < 8; ridx++) {
+							HD.x = h[ridx+1];
+							HD.y = f[ridx+1];
+							dblock_col_num = read_iter*8/DBLOCK_SIZE;
+							dblock_col[dp_matrix_offsets[i] + dp_mtx_len*dblock_col_num + j*warp_len*8 + warp_id*8 + ridx] = HD;
+						}
+					}					
+					//--------------------------------------------------
+					#endif
 				}
 				
 				if ((x% shared_len) == (shared_len-1) ) {

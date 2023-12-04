@@ -80,6 +80,6 @@ maxHH = (maxHH < curr) ? curr : maxHH;
 
 #include "kernels/get_tb.h"
 
-#include "kernels/tb_kernel.h"
+#include "kernels/tb_kernel_v3.h"
 
 #endif

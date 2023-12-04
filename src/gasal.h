@@ -6,11 +6,11 @@
 #include <stdint.h>
 
 
-//#include "/usr/local/cuda-10.2/targets/x86_64-linux/include/cuda_runtime.h"
-#include "/usr/local/cuda-12/targets/x86_64-linux/include/cuda_runtime.h"
-//#include "/usr/local/cuda-11.2/targets/x86_64-linux/include/cuda_runtime.h"
-//#include "/usr/local/cuda-11.3/targets/x86_64-linux/include/cuda_runtime.h"
-//#include "/usr/local/cuda-11.4/targets/x86_64-linux/include/cuda_runtime.h"
+#include "/usr/local/cuda-12.2/targets/x86_64-linux/include/cuda_runtime.h"
+#include "/usr/local/cuda-12.2/targets/x86_64-linux/include/cuda_runtime.h"
+#include "/usr/local/cuda-12.2/targets/x86_64-linux/include/cuda_runtime.h"
+#include "/usr/local/cuda-12.2/targets/x86_64-linux/include/cuda_runtime.h"
+#include "/usr/local/cuda-12.2/targets/x86_64-linux/include/cuda_runtime.h"
 
 #ifndef HOST_MALLOC_SAFETY_FACTOR
 #define HOST_MALLOC_SAFETY_FACTOR 5
@@ -108,6 +108,9 @@ typedef struct {
 	uint32_t *target_batch_offsets;
 	uint32_t *query_batch_lens;
 	uint32_t *target_batch_lens;
+
+	// start addresses of dp matrix
+	uint32_t *dp_matrix_offsets;
 
 	uint32_t *host_seed_scores;
 	uint32_t *seed_scores;

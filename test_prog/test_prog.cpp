@@ -9,13 +9,13 @@
 #include <omp.h>
 #include "Timer.h"
 
-#define NB_STREAMS 2
+#define NB_STREAMS 1
 
 //#define STREAM_BATCH_SIZE (262144)
 // this gives each stream HALF of the sequences.
 //#define STREAM_BATCH_SIZE ceil((double)target_seqs.size() / (double)(2))
 
-#define STREAM_BATCH_SIZE 5000//ceil((double)target_seqs.size() / (double)(2 * 2))
+#define STREAM_BATCH_SIZE 5000 //ceil((double)target_seqs.size() / (double)(2 * 2))
 
 
 #define DEBUG
@@ -24,8 +24,20 @@
 
 //#define GPU_SELECT 0
 
+void showCudaProps() {
+	cudaDeviceProp prop;
+    int device = 0;
 
-int main(int argc, char **argv) {
+    cudaGetDeviceProperties(&prop, device);
+
+	int maxThreadsPerSM;
+    cudaDeviceGetAttribute(&maxThreadsPerSM, cudaDevAttrMaxThreadsPerMultiProcessor, device);
+
+    printf("Number of registers per block: %d\n", prop.regsPerBlock);
+	printf("maxThreadsPerSM: %d\n", maxThreadsPerSM);
+}
+
+int main(int argc, char **argv) {	
 	Timer local_time;
 	Timer malloc_time;
 	Timer free_time;
@@ -215,7 +227,7 @@ int main(int argc, char **argv) {
 	gasal_gpu_storage_v *gpu_storage_vecs =  (gasal_gpu_storage_v*)calloc(n_threads, sizeof(gasal_gpu_storage_v));
 	for (int z = 0; z < n_threads; z++) {
 		gpu_storage_vecs[z] = gasal_init_gpu_storage_v(NB_STREAMS);// creating NB_STREAMS streams per thread
-
+		
 		/* 
 			About memory sizes:
 			The required memory is the total size of the batch + its padding, divided by the number of streams. 
@@ -276,19 +288,56 @@ int main(int argc, char **argv) {
 	// initialize global_inter_row
 	uint32_t BLOCKDIM = 128;
 	uint32_t N_BLOCKS = (5000 + BLOCKDIM - 1) / BLOCKDIM;
-	/*
+	
 	short2* global_inter_row;
-	cudaMalloc((void**) &global_inter_row, sizeof(short2)*maximum_sequence_length*(BLOCKDIM/32)*N_BLOCKS);	
-	*/
+	malloc_time.Start();
+	cudaMalloc((void**) &global_inter_row, sizeof(short2)*maximum_sequence_length*(BLOCKDIM/8)*N_BLOCKS);
+	// cudaMalloc((void**) &global_inter_row, sizeof(short2)*maximum_sequence_length*(BLOCKDIM/32)*N_BLOCKS);	
+	malloc_time.Pause();
+	
 
 	uint32_t* global_direction;
 	uint8_t *result_query;
 	uint8_t *result_target;
+	short2 *dblock_row, *dblock_col;
+	uint8_t *result_query_host;
+	uint8_t *result_target_host;
+	uint32_t *global_direction_host;
+	uint8_t *dblock_direction_global;
+
+	// calculate dblock_row, dblock_col size
+	int gb_idx = 0;
+	int dp_matrix_size = 0;
+
+	for (int z = 0; z < thread_n_batchs[omp_get_thread_num()]; z++) {
+		int sum = 0;
+		int idx_in_batch = 0;
+
+		for (idx_in_batch = 0; idx_in_batch < STREAM_BATCH_SIZE && gb_idx < n_seqs; idx_in_batch++, gb_idx++) {
+			sum += (MAX(query_seqs[gb_idx].size(), target_seqs[gb_idx].size()) * MAX(query_seqs[gb_idx].size(), target_seqs[gb_idx].size()) + DBLOCK_SIZE - 1) / DBLOCK_SIZE;
+		}
+
+		dp_matrix_size = MAX(dp_matrix_size, sum);
+	}
+
 
 	if (args->start_pos == WITH_TB) {
+		malloc_time.Start();
+
+		#ifdef DYNAMIC_TB
+		cudaMalloc((void**) &dblock_row, sizeof(short2)*dp_matrix_size);
+		cudaMalloc((void**) &dblock_col, sizeof(short2)*dp_matrix_size);
+		// cudaMalloc((void**) &dblock_direction_global, sizeof(uint8_t)*DBLOCK_SIZE*DBLOCK_SIZE*STREAM_BATCH_SIZE);
+		#else
 		cudaMalloc((void**) &global_direction, sizeof(uint32_t)*maximum_sequence_length*maximum_sequence_length*STREAM_BATCH_SIZE/8);
+		global_direction_host = (uint32_t*)malloc(sizeof(uint32_t)*maximum_sequence_length*maximum_sequence_length*STREAM_BATCH_SIZE/8);
+		#endif
+		
 		cudaMalloc((void**) &result_query, sizeof(uint8_t)*maximum_sequence_length*STREAM_BATCH_SIZE);
 		cudaMalloc((void**) &result_target, sizeof(uint8_t)*maximum_sequence_length*STREAM_BATCH_SIZE);
+		result_query_host = (uint8_t*)malloc(sizeof(uint8_t)*maximum_sequence_length*STREAM_BATCH_SIZE);
+		result_target_host = (uint8_t*)malloc(sizeof(uint8_t)*maximum_sequence_length*STREAM_BATCH_SIZE);
+		malloc_time.Pause();
 	}
 
 	if (n_seqs > 0) {
@@ -302,6 +351,7 @@ int main(int argc, char **argv) {
 			if (seqs_done < n_seqs && gpu_batch_arr_idx < gpu_storage_vecs[omp_get_thread_num()].n) {
 				uint32_t query_batch_idx = 0;
 				uint32_t target_batch_idx = 0;
+				uint32_t dp_matrix_idx = 0;
 				unsigned int j = 0;
 				//-----------Create a batch of sequences to be aligned on the GPU. The batch contains (target_seqs.size() / NB_STREAMS) number of sequences-----------------------
 
@@ -342,12 +392,16 @@ int main(int argc, char **argv) {
 					(gpu_batch_arr[gpu_batch_arr_idx].gpu_storage)->host_query_batch_lens[j] = query_seqs[i].size();
 					(gpu_batch_arr[gpu_batch_arr_idx].gpu_storage)->host_target_batch_lens[j] = target_seqs[i].size();
 
+					(gpu_batch_arr[gpu_batch_arr_idx].gpu_storage)->dp_matrix_offsets[j] = dp_matrix_idx;
+
+					dp_matrix_idx += (MAX(query_seqs[i].size(), target_seqs[i].size()) * MAX(query_seqs[i].size(), target_seqs[i].size()) + DBLOCK_SIZE - 1) / DBLOCK_SIZE;
+
 				}
 
 
 				#ifdef DEBUG
 					std::cerr << "[TEST_PROG DEBUG]: ";
-					std::cerr << "Stream " << gpu_batch_arr_idx << ": j = " << j << ", seqs_done = " << seqs_done <<", query_batch_idx=" << query_batch_idx << " , target_batch_idx=" << target_batch_idx << std::endl;
+					std::cerr << "Stream " << gpu_batch_arr_idx << ": j = " << j << ", seqs_done = " << seqs_done <<", query_batch_idx=" << query_batch_idx << " , target_batch_idx=" << target_batch_idx << "dp_matrix_idx = " << dp_matrix_idx << std::endl;
 				#endif
 
 				// Here, we fill the operations arrays for the current batch to be processed by the stream
@@ -360,182 +414,86 @@ int main(int argc, char **argv) {
 				uint32_t target_batch_bytes = target_batch_idx;
 				gpu_batch_arr[gpu_batch_arr_idx].batch_start = curr_idx;
 				curr_idx += (STREAM_BATCH_SIZE);
-				malloc_time.Start();
-				short2* global_inter_row;
-				cudaMalloc((void**) &global_inter_row, sizeof(short2)*maximum_sequence_length*(BLOCKDIM/8)*N_BLOCKS);
-				uint8_t *result_query_host = (uint8_t*)malloc(sizeof(uint8_t)*maximum_sequence_length*j);
-				uint8_t *result_target_host = (uint8_t*)malloc(sizeof(uint8_t)*maximum_sequence_length*j);
-				uint32_t* global_direction_host = (uint32_t*)malloc(sizeof(uint32_t)*maximum_sequence_length*maximum_sequence_length*j/8);;
-				// if (args->start_pos == WITH_TB) {
-				// 	cudaMalloc((void**) &global_direction, sizeof(uint32_t)*maximum_sequence_length*maximum_sequence_length*j/8); //TODO: check if it's available when larger size
-				// 	cudaMalloc((void**) &result_query, sizeof(uint8_t)*maximum_sequence_length*j);
-				// 	cudaMalloc((void**) &result_target, sizeof(uint8_t)*maximum_sequence_length*j);
-				// }
-				malloc_time.Stop();
 
 				//----------------------------------------------------------------------------------------------------
 				//-----------------calling the GASAL2 non-blocking alignment function---------------------------------
 				local_time.Start();
-				gasal_aln_async(gpu_batch_arr[gpu_batch_arr_idx].gpu_storage, query_batch_bytes, target_batch_bytes, gpu_batch_arr[gpu_batch_arr_idx].n_seqs_batch, args, maximum_sequence_length, global_inter_row, global_direction, result_query, result_target);
-				
-				// while(true);
-				// int debug_idx = 1;
-				// int debug_size = 8;
-				int tb_matrix_size = maximum_sequence_length*maximum_sequence_length/8;
-				if (gpu_batch_arr_idx == 0) {
-					while(true) {
-						if (gasal_is_aln_async_done(gpu_batch_arr[gpu_batch_arr_idx].gpu_storage) == 0) {
-							cudaMemcpy(global_direction_host, global_direction, sizeof(uint32_t)*tb_matrix_size*j, cudaMemcpyDeviceToHost);
-							cudaMemcpy(result_query_host, result_query, sizeof(uint8_t)*maximum_sequence_length*j, cudaMemcpyDeviceToHost);
-							cudaMemcpy(result_target_host, result_target, sizeof(uint8_t)*maximum_sequence_length*j, cudaMemcpyDeviceToHost);
-
-							for (int m = 0; m < 10; m++) {
-								printf("result_query_host[%d]:\t", curr_idx-STREAM_BATCH_SIZE + m);
-								for (uint32_t n = 0; n < maximum_sequence_length; n++) {
-									printf("%c", result_query_host[maximum_sequence_length*m + n]);
-								}
-								printf("\nresult_target_host[%d]:\t", curr_idx-STREAM_BATCH_SIZE + m);
-								for (uint32_t n = 0; n < maximum_sequence_length; n++) {
-									printf("%c", result_target_host[maximum_sequence_length*m + n]);
-								}
-								printf("\n\n");
-							}
-
-							// printf("  ");
-							// for (int q_i = 0; q_i < debug_size; q_i++) {
-							// 	printf("%c ", query_seqs[curr_idx-STREAM_BATCH_SIZE + debug_idx][q_i]);
-							// }
-							// printf("\n");
-							// for (int t_i = 0; t_i < debug_size; t_i++) {
-							// 	printf("%c", target_seqs[curr_idx-STREAM_BATCH_SIZE + debug_idx][t_i]);
-
-							// 	for (int q_i = 0; q_i < debug_size; q_i++) {
-							// 		switch((global_direction_host[tb_matrix_size*debug_idx + q_i] >> (28 - 4*t_i)) & 3) {
-							// 			case 0: // matched
-							// 			case 1: // mismatched
-							// 				printf(" d");
-							// 			break;
-							// 			case 2: // upper
-							// 				printf(" u");
-							// 			break;
-							// 			case 3: // left
-							// 				printf(" l");
-							// 			break;
-							// 		}
-							// 	}
-
-							// 	printf("\n");
-							// }
-							printf("\n");
-							break;
-						}
-					}
-				}
+				gasal_aln_async(gpu_batch_arr[gpu_batch_arr_idx].gpu_storage, query_batch_bytes, target_batch_bytes, gpu_batch_arr[gpu_batch_arr_idx].n_seqs_batch, args, maximum_sequence_length, global_inter_row, global_direction, result_query, result_target, dblock_row, dblock_col, dblock_direction_global);
 				
 				local_time.Stop();
 				gpu_batch_arr[gpu_batch_arr_idx].gpu_storage->current_n_alns = 0;
 				//---------------------------------------------------------------------------------
-				free_time.Start();
-				cudaFree(global_inter_row);
-				
-				free(global_direction_host);
-				
-				free_time.Stop();
 			}
 
-
-			
 
 			//-------------------------------print alignment results----------------------------------------
 		
 			gpu_batch_arr_idx = 0;
 			while (gpu_batch_arr_idx < gpu_storage_vecs[omp_get_thread_num()].n) {//loop through all the streams and print the results
 																					//of the finished streams.
+				int debug_idx = 1;
+				int debug_size = 8;
+				int tb_matrix_size = maximum_sequence_length*maximum_sequence_length/8;
+
 				if (gasal_is_aln_async_done(gpu_batch_arr[gpu_batch_arr_idx].gpu_storage) == 0) {
-					int j = 0;
-					if(print_out) {
-					#pragma omp critical
-					for (int i = gpu_batch_arr[gpu_batch_arr_idx].batch_start; j < gpu_batch_arr[gpu_batch_arr_idx].n_seqs_batch; i++, j++) {
-						
-						std::cout << "query_name=" << query_headers[i] ;
-						std::cout << "\ttarget_name=" << target_headers[i] ;
-						std::cout << "\tscore=" << (gpu_batch_arr[gpu_batch_arr_idx].gpu_storage)->host_res->aln_score[j] ;
-						
-						
-						/// WARNING : INEQUALITY ON ENUM: CAN BREAK IF ENUM ORDER IS CHANGED
-						if ((args->start_pos == WITH_START || args->start_pos == WITH_TB)
-							&& ((args->algo == SEMI_GLOBAL && (args->semiglobal_skipping_head != NONE || args->semiglobal_skipping_head != NONE))
-								|| args->algo > SEMI_GLOBAL))
-						{
-							std::cout << "\tquery_batch_start=" << (gpu_batch_arr[gpu_batch_arr_idx].gpu_storage)->host_res->query_batch_start[j];
-							std::cout << "\ttarget_batch_start=" << (gpu_batch_arr[gpu_batch_arr_idx].gpu_storage)->host_res->target_batch_start[j];
+					// temp - this is time-consuming
+					// cudaMemcpy(global_direction_host, global_direction, sizeof(uint32_t)*tb_matrix_size*STREAM_BATCH_SIZE, cudaMemcpyDeviceToHost);
+
+
+					cudaMemcpy(result_query_host, result_query, sizeof(uint8_t)*maximum_sequence_length*STREAM_BATCH_SIZE, cudaMemcpyDeviceToHost);
+					cudaMemcpy(result_target_host, result_target, sizeof(uint8_t)*maximum_sequence_length*STREAM_BATCH_SIZE, cudaMemcpyDeviceToHost);
+
+					if (curr_idx < 2*STREAM_BATCH_SIZE) {
+
+					
+					for (int m = 0; m < 10; m++) { // TODO: result_query/target size needed
+						printf("result_query_host[%d]:\t", curr_idx-STREAM_BATCH_SIZE + m);
+						for (uint32_t n = 0; n < maximum_sequence_length; n++) {
+							printf("%c", result_query_host[maximum_sequence_length*m + n]);
 						}
-						
-						if (args->algo != GLOBAL)
-						{
-							std::cout << "\tquery_batch_end="  << (gpu_batch_arr[gpu_batch_arr_idx].gpu_storage)->host_res->query_batch_end[j];
-							std::cout << "\ttarget_batch_end=" << (gpu_batch_arr[gpu_batch_arr_idx].gpu_storage)->host_res->target_batch_end[j] ;
+						printf("\nresult_target_host[%d]:\t", curr_idx-STREAM_BATCH_SIZE + m);
+						for (uint32_t n = 0; n < maximum_sequence_length; n++) {
+							printf("%c", result_target_host[maximum_sequence_length*m + n]);
 						}
-
-	
-
-						if (args->secondBest)
-						{
-							std::cout << "\t2nd_score=" << (gpu_batch_arr[gpu_batch_arr_idx].gpu_storage)->host_res_second->aln_score[j] ;
-							std::cout << "\t2nd_query_batch_end="  << (gpu_batch_arr[gpu_batch_arr_idx].gpu_storage)->host_res_second->query_batch_end[j];
-							std::cout << "\t2nd_target_batch_end=" << (gpu_batch_arr[gpu_batch_arr_idx].gpu_storage)->host_res_second->target_batch_end[j] ;
-						}
-
-						if (args->start_pos == WITH_TB) {
-							std::cout << "\tCIGAR=";
-							int u;
-							int offset = (gpu_batch_arr[gpu_batch_arr_idx].gpu_storage)->host_query_batch_offsets[j];
-							int n_cigar_ops = (gpu_batch_arr[gpu_batch_arr_idx].gpu_storage)->host_res->n_cigar_ops[j];
-							int last_op = ((gpu_batch_arr[gpu_batch_arr_idx].gpu_storage)->host_res->cigar[offset + n_cigar_ops - 1]) & 3;
-							int count = ((gpu_batch_arr[gpu_batch_arr_idx].gpu_storage)->host_res->cigar[offset + n_cigar_ops - 1]) >> 2;
-							for (u = n_cigar_ops - 2; u >= 0 ; u--){
-								int curr_op = ((gpu_batch_arr[gpu_batch_arr_idx].gpu_storage)->host_res->cigar[offset + u]) & 3;
-								if (curr_op == last_op) {
-									count +=  ((gpu_batch_arr[gpu_batch_arr_idx].gpu_storage)->host_res->cigar[offset + u]) >> 2;
-								} else {
-									char op;
-									switch (last_op) {
-									case 0: op = 'M';
-									break;
-									case 1: op = 'X';
-									break;
-									case 2: op = 'D';
-									break;
-									case 3: op = 'I';
-									break;
-									default: op = 'E';
-									break;
-
-									}
-									std::cout << count << op;
-									count =  ((gpu_batch_arr[gpu_batch_arr_idx].gpu_storage)->host_res->cigar[offset + u]) >> 2;
-
-								}
-								last_op = curr_op;
-
-							}
-							char op;
-							switch (last_op) {
-							case 0: op = 'M';
-							break;
-							case 1: op = 'X';
-							break;
-							case 2: op = 'D';
-							break;
-							case 3: op = 'I';
-							break;
-
-							}
-							std::cout << count << op;
-						}
-						std::cout << std::endl;
+						printf("\n\n");
 					}
+
 					}
+
+					
+					// while(true);
+
+					// printf("  ");
+					// for (int q_i = 0; q_i < debug_size; q_i++) {
+					// 	printf("%c ", query_seqs[curr_idx-STREAM_BATCH_SIZE + debug_idx][q_i]);
+					// }
+					// printf("\n");
+					// for (int t_i = 0; t_i < debug_size; t_i++) {
+					// 	printf("%c", target_seqs[curr_idx-STREAM_BATCH_SIZE + debug_idx][t_i]);
+
+					// 	for (int q_i = 0; q_i < debug_size; q_i++) {
+					// 		switch((global_direction_host[tb_matrix_size*debug_idx + q_i] >> (28 - 4*t_i)) & 3) {
+					// 			case 0: // matched
+					// 			case 1: // mismatched
+					// 				printf(" d");
+					// 			break;
+					// 			case 2: // upper
+					// 				printf(" u");
+					// 			break;
+					// 			case 3: // left
+					// 				printf(" l");
+					// 			break;
+					// 		}
+					// 	}
+
+					// 	printf("\n");
+					// }
+
+
+					printf("\n");
+
+					//----------------------------------------------------------------------
+
 					n_batchs_done++;
 				}
 				gpu_batch_arr_idx++;
@@ -543,12 +501,28 @@ int main(int argc, char **argv) {
 		}
 	}
 
-	//cudaFree(global_inter_row);
+	
+	free_time.Start();
+	cudaFree(global_inter_row);
+
 	if (args->start_pos == WITH_TB) {
+		
+		#ifdef DYNAMIC_TB
+		cudaFree(dblock_row);
+		cudaFree(dblock_col);
+		// cudaFree(dblock_direction_global);
+		#else
 		cudaFree(global_direction);
+		free(global_direction_host);
+		#endif		
+
 		cudaFree(result_query);
 		cudaFree(result_target);
+		free(result_query_host);
+		free(result_target_host);
+		
 	}
+	free_time.Pause();
 
 	}
 	for (int z = 0; z < n_threads; z++) {
