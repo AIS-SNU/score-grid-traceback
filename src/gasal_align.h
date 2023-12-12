@@ -95,7 +95,7 @@
 				fprintf(stderr, "[GASAL CUDA ERROR:] %s(CUDA error no.=%d). Line no. %d in file %s\n", cudaGetErrorString(aln_kernel_err), aln_kernel_err,  __LINE__, __FILE__);\
 				exit(EXIT_FAILURE);\
 			}\
-			traceback_kernel_dynamic<<<N_BLOCKS, BLOCKDIM, BLOCKDIM*DBLOCK_SIZE*6, gpu_storage->str>>>(gpu_storage->unpacked_query_batch, gpu_storage->unpacked_target_batch, gpu_storage->query_batch_lens, gpu_storage->target_batch_lens, gpu_storage->query_batch_offsets, gpu_storage->target_batch_offsets, global_direction, result_query, result_target, gpu_storage->device_res, actual_n_alns, maximum_sequence_length, dblock_row, dblock_col, gpu_storage->dp_matrix_offsets);\
+			traceback_kernel_dynamic<<<N_BLOCKS, BLOCKDIM, BLOCKDIM*DBLOCK_SIZE*6, gpu_storage->str>>>(gpu_storage->unpacked_query_batch, gpu_storage->unpacked_target_batch, gpu_storage->query_batch_lens, gpu_storage->target_batch_lens, gpu_storage->query_batch_offsets, gpu_storage->target_batch_offsets, result_query, result_target, gpu_storage->device_res, actual_n_alns, maximum_sequence_length, dblock_row, dblock_col, gpu_storage->dp_matrix_offsets);\
 			aln_kernel_err = cudaGetLastError();\
 			if ( cudaSuccess != aln_kernel_err )\
 			{\

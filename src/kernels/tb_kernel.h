@@ -7,7 +7,7 @@
 	subScore = (query == target) ? _cudaMatchScore : -_cudaMismatchScore;\
 	subScore = ((query == N_VALUE_T) || (target == N_VALUE_T)) ? 0 : subScore;\
 
-__global__ void traceback_kernel_old(uint8_t *unpacked_query_batch, uint8_t *unpacked_target_batch,  uint32_t *query_batch_lens, uint32_t *target_batch_lens, uint32_t *query_batch_offsets, uint32_t *target_batch_offsets, uint32_t *packed_tb_matrices, uint8_t *result_query, uint8_t *result_target, gasal_res_t *device_res, int n_tasks, uint32_t maximum_sequence_length) {
+__global__ void traceback_kernel_old(uint8_t *unpacked_query_batch, uint8_t *unpacked_target_batch,  uint32_t *query_batch_lens, uint32_t *target_batch_lens, uint32_t *query_batch_offsets, uint32_t *target_batch_offsets, uint32_t *global_direction, uint8_t *result_query, uint8_t *result_target, gasal_res_t *device_res, int n_tasks, uint32_t maximum_sequence_length) {
 	int i, j;
 	const uint32_t tid = (blockIdx.x * blockDim.x) + threadIdx.x;
 	if (tid >= n_tasks) return;
@@ -21,7 +21,7 @@ __global__ void traceback_kernel_old(uint8_t *unpacked_query_batch, uint8_t *unp
 	int target_matched_idx = 0;
 
 	while (i >= 0 && j >= 0) {
-		int direction = (packed_tb_matrices[tb_matrix_size*tid + maximum_sequence_length*(i>>3) + j] >> (28 - 4*(i & 7))) & 3;
+		int direction = (global_direction[tb_matrix_size*tid + maximum_sequence_length*(i>>3) + j] >> (28 - 4*(i & 7))) & 3;
 
 		switch(direction) {
 			case 0: // matched
@@ -46,7 +46,7 @@ __global__ void traceback_kernel_old(uint8_t *unpacked_query_batch, uint8_t *unp
 	}
 }
 
-__global__ void traceback_kernel_dynamic(uint8_t *unpacked_query_batch, uint8_t *unpacked_target_batch,  uint32_t *query_batch_lens, uint32_t *target_batch_lens, uint32_t *query_batch_offsets, uint32_t *target_batch_offsets, uint32_t *packed_tb_matrices, uint8_t *result_query, uint8_t *result_target, gasal_res_t *device_res, int n_tasks, uint32_t maximum_sequence_length, short2 *dblock_row, short2 *dblock_col, uint32_t *dp_matrix_offsets) {
+__global__ void traceback_kernel_dynamic(uint8_t *unpacked_query_batch, uint8_t *unpacked_target_batch,  uint32_t *query_batch_lens, uint32_t *target_batch_lens, uint32_t *query_batch_offsets, uint32_t *target_batch_offsets, uint8_t *result_query, uint8_t *result_target, gasal_res_t *device_res, int n_tasks, uint32_t maximum_sequence_length, short2 *dblock_row, short2 *dblock_col, uint32_t *dp_matrix_offsets) {
 	int i, j;
 	int d_row, d_col;
 	int inner_row, inner_col;
