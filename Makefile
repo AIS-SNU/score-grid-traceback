@@ -1,11 +1,10 @@
-#GPU_SM_ARCH=sm_86
-GPU_SM_ARCH=sm_75
+GPU_SM_ARCH=sm_89
 MAX_QUERY_LEN=10000
 N_CODE=0x4E
 N_PENALTY=
 
 GPU_COMPUTE_ARCH=$(subst sm,compute,$(GPU_SM_ARCH))
-NVCC=/usr/local/cuda/bin/nvcc
+NVCC=/usr/local/cuda-12.2/bin/nvcc
 CC=g++
 SRC_DIR=./src/
 OBJ_DIR=./obj/

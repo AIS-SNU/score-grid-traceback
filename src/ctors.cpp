@@ -111,10 +111,10 @@ void gasal_init_streams(gasal_gpu_storage_v *gpu_storage_vec,  int max_query_len
 			gpu_storage_vec->a[i].device_res_second = NULL;
 		}
 
-		if (params->start_pos == WITH_TB) {
-			gpu_storage_vec->a[i].packed_tb_matrix_size = ((uint32_t)ceil(((double)((uint64_t)max_query_len_8*(uint64_t)max_target_len_8))/32)) * gpu_max_n_alns;
-			CHECKCUDAERROR(cudaMalloc(&(gpu_storage_vec->a[i].packed_tb_matrices), gpu_storage_vec->a[i].packed_tb_matrix_size * sizeof(uint4)));
-		}
+		// if (params->start_pos == WITH_TB) {
+		// 	gpu_storage_vec->a[i].packed_tb_matrix_size = ((uint32_t)ceil(((double)((uint64_t)max_query_len_8*(uint64_t)max_target_len_8))/32)) * gpu_max_n_alns;
+		// 	CHECKCUDAERROR(cudaMalloc(&(gpu_storage_vec->a[i].packed_tb_matrices), gpu_storage_vec->a[i].packed_tb_matrix_size * sizeof(uint4)));
+		// }
 
 
 		CHECKCUDAERROR(cudaStreamCreate(&(gpu_storage_vec->a[i].str)));
