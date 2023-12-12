@@ -71,24 +71,8 @@
 
 #define SWITCH_LOCAL_TB(a,s,h,t,b,m,g) \
 		case s: {\
-			std::ofstream out;\
-            out.open("/nfs/home/syeonp/SW/runtime/runtime.log", std::ios::app);\
-            cudaEvent_t start, stop;\
-            cudaEventCreate(&start);\
-            cudaEventCreate(&stop);\
-            cudaEventRecord(start);\
 			gasal_local_kernel<Int2Type<LOCAL>, Int2Type<s>, Int2Type<b>><<<N_BLOCKS, BLOCKDIM, (BLOCKDIM/8)*512*sizeof(short2)+BLOCKDIM*3*sizeof(int32_t), gpu_storage->str>>>(gpu_storage->packed_query_batch, gpu_storage->packed_target_batch, gpu_storage->query_batch_lens, gpu_storage->target_batch_lens, gpu_storage->query_batch_offsets, gpu_storage->target_batch_offsets, gpu_storage->device_res, gpu_storage->device_res_second, gpu_storage->packed_tb_matrices, actual_n_alns, maximum_sequence_length, global_inter_row, global_direction, dblock_row, dblock_col, gpu_storage->dp_matrix_offsets); \
 			cudaDeviceSynchronize();\
-            cudaEventRecord(stop);\
-            cudaEventSynchronize(stop);\
-            float mill = 0;\
-            cudaEventElapsedTime(&mill, start, stop);\
-            fprintf(stderr, "malloc time (in milliseconds): %.10f\n", mill);\
-            out << mill;\
-            out << std::endl;\
-            out.close();\
-            cudaEventDestroy(start);\
-            cudaEventDestroy(stop);\
 			cudaError_t aln_kernel_err = cudaGetLastError();\
 			if ( cudaSuccess != aln_kernel_err )\
 			{\
@@ -109,24 +93,8 @@
 
 #define SWITCH_LOCAL_TB(a,s,h,t,b,m,g) \
 		case s: {\
-			std::ofstream out;\
-            out.open("/nfs/home/syeonp/SW/runtime/runtime.log", std::ios::app);\
-            cudaEvent_t start, stop;\
-            cudaEventCreate(&start);\
-            cudaEventCreate(&stop);\
-            cudaEventRecord(start);\
 			gasal_local_kernel<Int2Type<LOCAL>, Int2Type<s>, Int2Type<b>><<<N_BLOCKS, BLOCKDIM, (BLOCKDIM/8)*512*sizeof(short2)+BLOCKDIM*3*sizeof(int32_t), gpu_storage->str>>>(gpu_storage->packed_query_batch, gpu_storage->packed_target_batch, gpu_storage->query_batch_lens, gpu_storage->target_batch_lens, gpu_storage->query_batch_offsets, gpu_storage->target_batch_offsets, gpu_storage->device_res, gpu_storage->device_res_second, gpu_storage->packed_tb_matrices, actual_n_alns, maximum_sequence_length, global_inter_row, global_direction, dblock_row, dblock_col, gpu_storage->dp_matrix_offsets); \
 			cudaDeviceSynchronize();\
-            cudaEventRecord(stop);\
-            cudaEventSynchronize(stop);\
-            float mill = 0;\
-            cudaEventElapsedTime(&mill, start, stop);\
-            fprintf(stderr, "malloc time (in milliseconds): %.10f\n", mill);\
-            out << mill;\
-            out << std::endl;\
-            out.close();\
-            cudaEventDestroy(start);\
-            cudaEventDestroy(stop);\
 			traceback_kernel_old<<<N_BLOCKS, BLOCKDIM, 0, gpu_storage->str>>>(gpu_storage->unpacked_query_batch, gpu_storage->unpacked_target_batch, gpu_storage->query_batch_lens, gpu_storage->target_batch_lens, gpu_storage->query_batch_offsets, gpu_storage->target_batch_offsets, global_direction, result_query, result_target, gpu_storage->device_res, actual_n_alns, maximum_sequence_length);\
 			cudaError_t aln_kernel_err = cudaGetLastError();\
 			if ( cudaSuccess != aln_kernel_err )\

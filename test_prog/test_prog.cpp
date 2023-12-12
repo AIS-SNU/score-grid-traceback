@@ -382,7 +382,7 @@ int main(int argc, char **argv) {
 
 				#ifdef DEBUG
 					std::cerr << "[TEST_PROG DEBUG]: ";
-					std::cerr << "Stream " << gpu_batch_arr_idx << ": j = " << j << ", seqs_done = " << seqs_done <<", query_batch_idx=" << query_batch_idx << " , target_batch_idx=" << target_batch_idx << "dp_matrix_idx = " << dp_matrix_idx << std::endl;
+					std::cerr << "Stream " << gpu_batch_arr_idx << ": j = " << j << ", seqs_done = " << seqs_done <<", query_batch_idx=" << query_batch_idx << ", target_batch_idx=" << target_batch_idx << ", dp_matrix_idx=" << dp_matrix_idx << std::endl;
 				#endif
 				
 
