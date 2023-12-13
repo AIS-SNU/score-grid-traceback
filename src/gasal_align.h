@@ -49,7 +49,7 @@
             cudaEventCreate(&start);\
             cudaEventCreate(&stop);\
             cudaEventRecord(start);\
-			gasal_local_kernel<Int2Type<LOCAL>, Int2Type<s>, Int2Type<b>><<<N_BLOCKS, BLOCKDIM, (BLOCKDIM/8)*512*sizeof(short2)+BLOCKDIM*3*sizeof(int32_t), gpu_storage->str>>>(gpu_storage->packed_query_batch, gpu_storage->packed_target_batch, gpu_storage->query_batch_lens, gpu_storage->target_batch_lens, gpu_storage->query_batch_offsets, gpu_storage->target_batch_offsets, gpu_storage->device_res, gpu_storage->device_res_second, gpu_storage->packed_tb_matrices, actual_n_alns, maximum_sequence_length, global_inter_row, NULL, NULL, NULL, NULL); \
+			gasal_local_kernel<Int2Type<LOCAL>, Int2Type<s>, Int2Type<b>><<<N_BLOCKS, BLOCKDIM, (BLOCKDIM/8)*512*sizeof(short2)+BLOCKDIM*3*sizeof(int32_t), gpu_storage->str>>>(gpu_storage->packed_query_batch, gpu_storage->packed_target_batch, gpu_storage->query_batch_lens, gpu_storage->target_batch_lens, gpu_storage->query_batch_offsets, gpu_storage->target_batch_offsets, gpu_storage->device_res, gpu_storage->device_res_second, gpu_storage->packed_tb_matrices, actual_n_alns, maximum_sequence_length, global_inter_row, NULL, NULL, NULL, NULL, NULL); \
 			cudaDeviceSynchronize();\
             cudaEventRecord(stop);\
             cudaEventSynchronize(stop);\
@@ -71,7 +71,7 @@
 
 #define SWITCH_LOCAL_TB(a,s,h,t,b,m,g) \
 		case s: {\
-			gasal_local_kernel<Int2Type<LOCAL>, Int2Type<s>, Int2Type<b>><<<N_BLOCKS, BLOCKDIM, (BLOCKDIM/8)*512*sizeof(short2)+BLOCKDIM*3*sizeof(int32_t), gpu_storage->str>>>(gpu_storage->packed_query_batch, gpu_storage->packed_target_batch, gpu_storage->query_batch_lens, gpu_storage->target_batch_lens, gpu_storage->query_batch_offsets, gpu_storage->target_batch_offsets, gpu_storage->device_res, gpu_storage->device_res_second, gpu_storage->packed_tb_matrices, actual_n_alns, maximum_sequence_length, global_inter_row, global_direction, dblock_row, dblock_col, gpu_storage->dp_matrix_offsets); \
+			gasal_local_kernel<Int2Type<LOCAL>, Int2Type<s>, Int2Type<b>><<<N_BLOCKS, BLOCKDIM, (BLOCKDIM/8)*512*sizeof(short2)+BLOCKDIM*3*sizeof(int32_t), gpu_storage->str>>>(gpu_storage->packed_query_batch, gpu_storage->packed_target_batch, gpu_storage->query_batch_lens, gpu_storage->target_batch_lens, gpu_storage->query_batch_offsets, gpu_storage->target_batch_offsets, gpu_storage->device_res, gpu_storage->device_res_second, gpu_storage->packed_tb_matrices, actual_n_alns, maximum_sequence_length, global_inter_row, global_direction, dblock_row, dblock_col, gpu_storage->dp_matrix_offsets, gpu_storage->global_direction_offsets); \
 			cudaDeviceSynchronize();\
 			cudaError_t aln_kernel_err = cudaGetLastError();\
 			if ( cudaSuccess != aln_kernel_err )\
@@ -93,9 +93,9 @@
 
 #define SWITCH_LOCAL_TB(a,s,h,t,b,m,g) \
 		case s: {\
-			gasal_local_kernel<Int2Type<LOCAL>, Int2Type<s>, Int2Type<b>><<<N_BLOCKS, BLOCKDIM, (BLOCKDIM/8)*512*sizeof(short2)+BLOCKDIM*3*sizeof(int32_t), gpu_storage->str>>>(gpu_storage->packed_query_batch, gpu_storage->packed_target_batch, gpu_storage->query_batch_lens, gpu_storage->target_batch_lens, gpu_storage->query_batch_offsets, gpu_storage->target_batch_offsets, gpu_storage->device_res, gpu_storage->device_res_second, gpu_storage->packed_tb_matrices, actual_n_alns, maximum_sequence_length, global_inter_row, global_direction, dblock_row, dblock_col, gpu_storage->dp_matrix_offsets); \
+			gasal_local_kernel<Int2Type<LOCAL>, Int2Type<s>, Int2Type<b>><<<N_BLOCKS, BLOCKDIM, (BLOCKDIM/8)*512*sizeof(short2)+BLOCKDIM*3*sizeof(int32_t), gpu_storage->str>>>(gpu_storage->packed_query_batch, gpu_storage->packed_target_batch, gpu_storage->query_batch_lens, gpu_storage->target_batch_lens, gpu_storage->query_batch_offsets, gpu_storage->target_batch_offsets, gpu_storage->device_res, gpu_storage->device_res_second, gpu_storage->packed_tb_matrices, actual_n_alns, maximum_sequence_length, global_inter_row, global_direction, dblock_row, dblock_col, gpu_storage->dp_matrix_offsets, gpu_storage->global_direction_offsets); \
 			cudaDeviceSynchronize();\
-			traceback_kernel_old<<<N_BLOCKS, BLOCKDIM, 0, gpu_storage->str>>>(gpu_storage->unpacked_query_batch, gpu_storage->unpacked_target_batch, gpu_storage->query_batch_lens, gpu_storage->target_batch_lens, gpu_storage->query_batch_offsets, gpu_storage->target_batch_offsets, global_direction, result_query, result_target, gpu_storage->device_res, actual_n_alns, maximum_sequence_length);\
+			traceback_kernel_old<<<N_BLOCKS, BLOCKDIM, 0, gpu_storage->str>>>(gpu_storage->unpacked_query_batch, gpu_storage->unpacked_target_batch, gpu_storage->query_batch_lens, gpu_storage->target_batch_lens, gpu_storage->query_batch_offsets, gpu_storage->target_batch_offsets, global_direction, result_query, result_target, gpu_storage->device_res, actual_n_alns, maximum_sequence_length, gpu_storage->global_direction_offsets);\
 			cudaError_t aln_kernel_err = cudaGetLastError();\
 			if ( cudaSuccess != aln_kernel_err )\
 			{\

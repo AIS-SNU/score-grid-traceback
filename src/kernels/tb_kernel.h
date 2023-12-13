@@ -7,21 +7,20 @@
 	subScore = (query == target) ? _cudaMatchScore : -_cudaMismatchScore;\
 	subScore = ((query == N_VALUE_T) || (target == N_VALUE_T)) ? 0 : subScore;\
 
-__global__ void traceback_kernel_old(uint8_t *unpacked_query_batch, uint8_t *unpacked_target_batch,  uint32_t *query_batch_lens, uint32_t *target_batch_lens, uint32_t *query_batch_offsets, uint32_t *target_batch_offsets, uint32_t *global_direction, uint8_t *result_query, uint8_t *result_target, gasal_res_t *device_res, int n_tasks, uint32_t maximum_sequence_length) {
+__global__ void traceback_kernel_old(uint8_t *unpacked_query_batch, uint8_t *unpacked_target_batch,  uint32_t *query_batch_lens, uint32_t *target_batch_lens, uint32_t *query_batch_offsets, uint32_t *target_batch_offsets, uint32_t *global_direction, uint8_t *result_query, uint8_t *result_target, gasal_res_t *device_res, int n_tasks, uint32_t maximum_sequence_length, uint64_t *global_direction_offsets) {
 	int i, j;
 	const uint32_t tid = (blockIdx.x * blockDim.x) + threadIdx.x;
 	if (tid >= n_tasks) return;
 
-	int tb_matrix_size = maximum_sequence_length*maximum_sequence_length/8;
-
 	i = device_res->target_batch_end[tid];
 	j = device_res->query_batch_end[tid];
 
+	int dp_mtx_len = MAX(query_batch_lens[tid], target_batch_lens[tid]);
 	int query_matched_idx = 0;
 	int target_matched_idx = 0;
 
 	while (i >= 0 && j >= 0) {
-		int direction = (global_direction[tb_matrix_size*tid + maximum_sequence_length*(i>>3) + j] >> (28 - 4*(i & 7))) & 3;
+		int direction = (global_direction[global_direction_offsets[tid] + dp_mtx_len*(i>>3) + j] >> (28 - 4*(i & 7))) & 3;
 
 		switch(direction) {
 			case 0: // matched

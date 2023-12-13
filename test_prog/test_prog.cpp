@@ -291,17 +291,26 @@ int main(int argc, char **argv) {
 
 	// calculate dblock_row, dblock_col size
 	int gb_idx = 0;
-	int dblock_matrix_size = 0;
+	int64_t dblock_matrix_size = 0;
+	int64_t global_direction_size = 0;
 
 	for (int z = 0; z < thread_n_batchs[omp_get_thread_num()]; z++) {
 		int sum = 0;
 		int idx_in_batch = 0;
 
 		for (idx_in_batch = 0; idx_in_batch < STREAM_BATCH_SIZE && gb_idx < n_seqs; idx_in_batch++, gb_idx++) {
+			#ifdef DYNAMIC_TB
 			sum += (MAX(query_seqs[gb_idx].size(), target_seqs[gb_idx].size()) * MAX(query_seqs[gb_idx].size(), target_seqs[gb_idx].size()) + DBLOCK_SIZE - 1) / DBLOCK_SIZE;
+			#else
+			sum += MAX(query_seqs[gb_idx].size(), target_seqs[gb_idx].size()) * ((MAX(query_seqs[gb_idx].size(), target_seqs[gb_idx].size())+7) / 8);
+			#endif
 		}
-
+		#ifdef DYNAMIC_TB
 		dblock_matrix_size = MAX(dblock_matrix_size, sum);
+		#else
+		global_direction_size = MAX(global_direction_size, sum);
+		#endif
+		
 	}
 
 
@@ -312,7 +321,9 @@ int main(int argc, char **argv) {
 		CHECKCUDAERROR(cudaMalloc((void**) &dblock_row, sizeof(short2)*dblock_matrix_size));
 		CHECKCUDAERROR(cudaMalloc((void**) &dblock_col, sizeof(short2)*dblock_matrix_size));
 		#else
-		cudaMalloc((void**) &global_direction, sizeof(uint32_t)*maximum_sequence_length*maximum_sequence_length*STREAM_BATCH_SIZE/8);
+		// cudaMalloc((void**) &global_direction, sizeof(uint32_t)*maximum_sequence_length*maximum_sequence_length*STREAM_BATCH_SIZE/8);
+		printf("global direction size: %ld\n", global_direction_size);
+		CHECKCUDAERROR(cudaMalloc((void**) &global_direction, sizeof(uint32_t)*global_direction_size));
 		#endif
 		
 		CHECKCUDAERROR(cudaMalloc((void**) &result_query, sizeof(uint8_t)*maximum_sequence_length*STREAM_BATCH_SIZE));
@@ -334,6 +345,7 @@ int main(int argc, char **argv) {
 				uint32_t query_batch_idx = 0;
 				uint32_t target_batch_idx = 0;
 				uint32_t dp_matrix_idx = 0;
+				uint64_t global_direction_idx = 0;
 				unsigned int j = 0;
 				//-----------Create a batch of sequences to be aligned on the GPU. The batch contains (target_seqs.size() / NB_STREAMS) number of sequences-----------------------
 
@@ -374,8 +386,10 @@ int main(int argc, char **argv) {
 					(gpu_batch_arr[gpu_batch_arr_idx].gpu_storage)->host_target_batch_lens[j] = target_seqs[i].size();
 
 					(gpu_batch_arr[gpu_batch_arr_idx].gpu_storage)->dp_matrix_offsets[j] = dp_matrix_idx;
+					(gpu_batch_arr[gpu_batch_arr_idx].gpu_storage)->global_direction_offsets[j] = global_direction_idx;
 
 					dp_matrix_idx += (MAX(query_seqs[i].size(), target_seqs[i].size()) * MAX(query_seqs[i].size(), target_seqs[i].size()) + DBLOCK_SIZE - 1) / DBLOCK_SIZE;
+					global_direction_idx += MAX(query_seqs[i].size(), target_seqs[i].size()) * ((MAX(query_seqs[i].size(), target_seqs[i].size())+7) / 8);
 
 				}
 

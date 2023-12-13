@@ -111,6 +111,7 @@ typedef struct {
 
 	// start addresses of dp matrix
 	uint32_t *dp_matrix_offsets;
+	uint64_t *global_direction_offsets;
 
 	uint32_t *host_seed_scores;
 	uint32_t *seed_scores;

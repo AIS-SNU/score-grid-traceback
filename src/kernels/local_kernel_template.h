@@ -68,7 +68,7 @@
     (sidenote: it's based on an enum instead of a bool in order to generalize its type from its Int value, with Int2Type meta-programming-template)
 */
 template <typename T, typename S, typename B>
-__global__ void gasal_local_kernel(uint32_t *packed_query_batch, uint32_t *packed_target_batch,  uint32_t *query_batch_lens, uint32_t *target_batch_lens, uint32_t *query_batch_offsets, uint32_t *target_batch_offsets, gasal_res_t *device_res, gasal_res_t *device_res_second, uint4 *packed_tb_matrices, int n_tasks, uint32_t max_query_len, short2 *global_inter_row, uint32_t *global_direction, short2 *dblock_row, short2 *dblock_col, uint32_t *dp_matrix_offsets)
+__global__ void gasal_local_kernel(uint32_t *packed_query_batch, uint32_t *packed_target_batch,  uint32_t *query_batch_lens, uint32_t *target_batch_lens, uint32_t *query_batch_offsets, uint32_t *target_batch_offsets, gasal_res_t *device_res, gasal_res_t *device_res_second, uint4 *packed_tb_matrices, int n_tasks, uint32_t max_query_len, short2 *global_inter_row, uint32_t *global_direction, short2 *dblock_row, short2 *dblock_col, uint32_t *dp_matrix_offsets, uint64_t *global_direction_offsets)
 {
     const uint32_t tid = (blockIdx.x * blockDim.x) + threadIdx.x;//thread ID
 	//if (tid >= n_tasks) return;
@@ -224,7 +224,7 @@ __global__ void gasal_local_kernel(uint32_t *packed_query_batch, uint32_t *packe
 							#ifdef DYNAMIC_TB
 							CORE_LOCAL_COMPUTE();
 							#else
-							CORE_LOCAL_COMPUTE_TB(global_direction[tb_matrix_size*i + j*max_query_len*8 + max_query_len*warp_id + read_iter*8 + ridx]);
+							CORE_LOCAL_COMPUTE_TB(global_direction[global_direction_offsets[i] + j*dp_mtx_len*8 + dp_mtx_len*warp_id + read_iter*8 + ridx]);
 							#endif
 							
 							
@@ -321,7 +321,7 @@ __global__ void gasal_local_kernel(uint32_t *packed_query_batch, uint32_t *packe
 							#ifdef DYNAMIC_TB
 							CORE_LOCAL_COMPUTE();
 							#else
-							CORE_LOCAL_COMPUTE_TB(global_direction[tb_matrix_size*i + j*max_query_len*8 + max_query_len*warp_id + read_iter*8 + ridx]);
+							CORE_LOCAL_COMPUTE_TB(global_direction[global_direction_offsets[i] + j*dp_mtx_len*8 + dp_mtx_len*warp_id + read_iter*8 + ridx]);
 							#endif
 
 							if (SAMETYPE(B, Int2Type<TRUE>))
@@ -418,7 +418,7 @@ __global__ void gasal_local_kernel(uint32_t *packed_query_batch, uint32_t *packe
 							#ifdef DYNAMIC_TB
 							CORE_LOCAL_COMPUTE();
 							#else
-							CORE_LOCAL_COMPUTE_TB(global_direction[tb_matrix_size*i + j*max_query_len*8 + max_query_len*warp_id + read_iter*8 + ridx]);
+							CORE_LOCAL_COMPUTE_TB(global_direction[global_direction_offsets[i] + j*dp_mtx_len*8 + dp_mtx_len*warp_id + read_iter*8 + ridx]);
 							#endif
 
 							if (SAMETYPE(B, Int2Type<TRUE>))

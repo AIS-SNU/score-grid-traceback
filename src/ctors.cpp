@@ -87,6 +87,7 @@ void gasal_init_streams(gasal_gpu_storage_v *gpu_storage_vec,  int max_query_len
 		CHECKCUDAERROR(cudaHostAlloc(&(gpu_storage_vec->a[i].host_target_batch_offsets), host_max_n_alns * sizeof(uint32_t), cudaHostAllocDefault));
 
 		CHECKCUDAERROR(cudaHostAlloc(&(gpu_storage_vec->a[i].dp_matrix_offsets), host_max_n_alns * sizeof(uint32_t), cudaHostAllocDefault));
+		CHECKCUDAERROR(cudaHostAlloc(&(gpu_storage_vec->a[i].global_direction_offsets), host_max_n_alns * sizeof(uint64_t), cudaHostAllocDefault));
 
 		CHECKCUDAERROR(cudaMalloc(&(gpu_storage_vec->a[i].query_batch_lens), gpu_max_n_alns * sizeof(uint32_t)));
 		CHECKCUDAERROR(cudaMalloc(&(gpu_storage_vec->a[i].target_batch_lens), gpu_max_n_alns * sizeof(uint32_t)));
