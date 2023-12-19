@@ -32,6 +32,14 @@ cd test_prog
 make
 ```
 
+## Parameters
+#### Batch Size: determines the number of sequence pairs processed in a single iteration. (test_prog.cpp::STREAM_BATCH_SIZE)
+
+#### Score Grid Size: defines the size of the score grid, which partitions the score matrix. (gasal_align.h::DBLOCK_SIZE)
+
+#### Thread Block Size: Specifies the number of CUDA threads within a single thread block. (test_prog.cpp::BLOCKDIM, gasal_align.cu::BLOCKDIM (2 should be the same))
+
+
 ### ./test_prog.out -h shows:
 ```bash
 Usage: ./test_prog.out [-a] [-b] [-q] [-r] [-s] [-t] [-p] [-n] [-y] <query_batch.fasta> <target_batch.fasta>
