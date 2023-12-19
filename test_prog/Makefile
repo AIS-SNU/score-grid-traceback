@@ -36,6 +36,9 @@ test_prog.out: test_prog.o
 	g++ -std=c++11 -O3 test_prog.cpp -o test_prog.out -L$(CUDA_LD_LIBRARY) -L../lib -fopenmp -lcudart -lgasal 
 	#g++ -std=c++11 -O3 -c test_prog.cpp -o test_prog.out -L$(CUDA_LD_LIBRARY) -L../lib -fopenmp -lcuda -lcudart -lgasal test_prog.o 
 
+check_result.out:
+	g++ -std=c++11 check_result.cpp -o check_result.out
+
 clean:
 	rm -f -r *~ *.exe *.o *.out
 	
