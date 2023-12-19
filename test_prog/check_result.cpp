@@ -37,6 +37,7 @@ int main(int argc, char **argv) {
     }
 
     //---------------- Change it to debug --------------------
+    // Base pairs having idx in [target_batch_idx, target_batch_idx + check_size) are calculated
     int target_batch_idx = 0;
     bool show_inputs = true;
     bool show_results = true;
@@ -71,7 +72,7 @@ int main(int argc, char **argv) {
         }
 
         if (target_batch_idx % 10 == 0) {
-            std::cout << "target_batch_idx " << target_batch_idx << " processed" << std::endl;
+            std::cout << "target_batch_idx " << target_batch_idx << " processing" << std::endl;
         }
 
         if (show_inputs) {
