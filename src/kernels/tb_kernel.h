@@ -7,6 +7,10 @@
 	subScore = (query == target) ? _cudaMatchScore : -_cudaMismatchScore;\
 	subScore = ((query == N_VALUE_T) || (target == N_VALUE_T)) ? 0 : subScore;\
 
+/**
+ * Called when DYNAMIC_TB is NOT defined.
+ * It gets traceback directions from global memory that is calculated during forward phase.
+ */
 __global__ void traceback_kernel_old(uint8_t *unpacked_query_batch, uint8_t *unpacked_target_batch,  uint32_t *query_batch_lens, uint32_t *target_batch_lens, uint32_t *query_batch_offsets, uint32_t *target_batch_offsets, uint32_t *global_direction, uint8_t *result_query, uint8_t *result_target, gasal_res_t *device_res, int n_tasks, uint32_t maximum_sequence_length, uint64_t *global_direction_offsets) {
 	int i, j;
 	const uint32_t tid = (blockIdx.x * blockDim.x) + threadIdx.x;
@@ -45,6 +49,10 @@ __global__ void traceback_kernel_old(uint8_t *unpacked_query_batch, uint8_t *unp
 	}
 }
 
+/**
+ * Called when DYNAMIC_TB is defined.
+ * It gets score grid data from global memory and repeats both calculating scores and traceback in the grid.
+ */
 __global__ void traceback_kernel_dynamic(uint8_t *unpacked_query_batch, uint8_t *unpacked_target_batch,  uint32_t *query_batch_lens, uint32_t *target_batch_lens, uint32_t *query_batch_offsets, uint32_t *target_batch_offsets, uint8_t *result_query, uint8_t *result_target, gasal_res_t *device_res, int n_tasks, uint32_t maximum_sequence_length, short2 *dblock_row, short2 *dblock_col, uint32_t *dp_matrix_offsets) {
 	int i, j;
 	int d_row, d_col;
@@ -185,16 +193,16 @@ __global__ void traceback_kernel_dynamic(uint8_t *unpacked_query_batch, uint8_t 
 		}
 
 		if (inner_row < 0) {
-			if (inner_col < 0) { // dblock diag
+			if (inner_col < 0) { // diag dblock
 				d_row--;
 				d_col--;
 				inner_row = DBLOCK_SIZE-1;
 				inner_col = DBLOCK_SIZE-1;
-			} else { // dblock upper
+			} else { // upper dblock
 				d_row--;
 				inner_row = DBLOCK_SIZE-1;
 			}
-		} else { // dlbock left
+		} else { // left dblock
 			d_col--;
 			inner_col = DBLOCK_SIZE-1;
 		}
